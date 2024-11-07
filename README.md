@@ -20,4 +20,4 @@ To run the project, kindly clone the repository.
 ## Recommendations for update
 * The project can be converted to a mono repo to further simplify package management. ✅
 * Add notification libraries to the frontend.
-* Add rich text editing for the blog content.
+* A progress indicator can be added to the tasks page, showing how many percent done the tasks are.

@@ -4,35 +4,35 @@ import * as bcrypt from 'bcrypt';
 const sequelize = new Sequelize({dialect: 'sqlite', storage: ':memory:'});
 
 const User = sequelize.define('User', {
-    email: DataTypes.STRING,
-    password: DataTypes.STRING,
-    name: DataTypes.STRING,
+  email: DataTypes.STRING,
+  password: DataTypes.STRING,
+  name: DataTypes.STRING,
 });
 
 const TodoList = sequelize.define('TodoList', {
-    userId: {
-        type: DataTypes.INTEGER,
-        references: {
-            model: User,
-            key: 'id'
-        }
-    },
-    title: DataTypes.STRING
+  userId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: User,
+      key: 'id'
+    }
+  },
+  title: DataTypes.STRING
 });
 
 const TodoItem = sequelize.define('TodoItem', {
-    listId: {
-        type: DataTypes.INTEGER,
-        references: {
-            model: TodoList,
-            key: 'id'
-        }
-    },
-    content: DataTypes.STRING,
-    done: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false // Set the default value to false
-    },
+  listId: {
+    type: DataTypes.INTEGER,
+    references: {
+      model: TodoList,
+      key: 'id'
+    }
+  },
+  content: DataTypes.STRING,
+  done: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false // Set the default value to false
+  },
 });
 
 // Set up associations
@@ -40,151 +40,164 @@ TodoList.hasMany(TodoItem, {foreignKey: 'listId', onDelete: 'CASCADE'});
 TodoItem.belongsTo(TodoList, {foreignKey: 'listId'});
 
 try {
-    await sequelize.authenticate();
-    await sequelize.sync({force: true});
-    console.log('Connection has been established successfully.');
+  await sequelize.authenticate();
+  await sequelize.sync({force: true});
+  console.log('Connection has been established successfully.');
 } catch (error) {
-    console.error('Unable to connect to the database:', error);
+  console.error('Unable to connect to the database:', error);
 }
 
 export default function (fastify, options, done) {
-    // Register an account
-    fastify.post('/sign-up', async (request, reply) => {
-        const {email, password, name} = request.body;
+  // Register an account
+  fastify.post('/sign-up', async (request, reply) => {
+    const {email, password, name} = request.body;
 
-        const whereConditions = {};
-        whereConditions.email = {[Sequelize.Op.eq]: email};
+    const whereConditions = {};
+    whereConditions.email = {[Sequelize.Op.eq]: email};
 
-        const existingUser = await User.findOne({where: whereConditions});
+    const existingUser = await User.findOne({where: whereConditions});
 
-        if (existingUser?.id) return reply.code(401).send({message: 'Email in use.'});
+    if (existingUser?.id) return reply.code(403).send({message: 'Email in use.'});
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = await User.create({name, email, password: hashedPassword})
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = await User.create({name, email, password: hashedPassword})
 
-        if (!newUser) return reply.code(400).send({message: 'Unable to create account at the moment.'});
+    if (!newUser) return reply.code(400).send({message: 'Unable to create account at the moment.'});
 
-        reply.send({message: 'Account created successfully.'})
+    reply.send({message: 'Account created successfully.'})
+  });
+
+  fastify.get('/users-list', async (request, reply) => {
+    return reply.send(await User.findAll());
+  })
+
+  // Log into account
+  fastify.post('/log-in', async (request, reply) => {
+    const {email, password} = request.body;
+
+    const user = await User.findOne({where: {email}});
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return reply.code(403).send({message: 'Invalid username or password'});
+    }
+
+    const token = fastify.jwt.sign({userId: user.id}, {expiresIn: '6h'})
+
+    reply.send({token, name: user.name, message: 'Logged in successfully.'});
+  });
+
+  // To-do list operations
+
+  fastify.get('/todo-list', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const items = await TodoList.findAll({
+      where: {userId: request.user.userId},
+      order: [['createdAt', 'DESC']]
     });
 
-    fastify.get('/users-list', async (request, reply) => {
-        return reply.send(await User.findAll());
-    })
+    reply.send(items)
+  });
 
-    // Log into account
-    fastify.post('/log-in', async (request, reply) => {
-        const {email, password} = request.body;
-
-        const user = await User.findOne({where: {email}});
-
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-            return reply.code(401).send({message: 'Invalid username or password'});
-        }
-
-        const token = fastify.jwt.sign({userId: user.id}, {expiresIn: '6h'})
-
-        reply.send({token, message: 'Logged in successfully.'});
+  // Return a full to do list.
+  fastify.get('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id} = request.params;
+    const todoList = await TodoList.findOne({
+      where: {id, userId: request.user.userId},
+      include: {
+        model: TodoItem,
+        attributes: ['id', 'content', 'done'],
+      }
     });
 
-    // To-do list operations
+    if (!todoList) {
+      return reply.code(404).send({error: 'Todo list not found'});
+    }
 
-    fastify.get('/todo-list', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const items = await TodoList.findAll({
-            where: {userId: request.user.userId},
-            order: [['createdAt', 'DESC']]
-        });
+    // Format the response
+    const response = {
+      title: todoList.title,
+      items: todoList.TodoItems
+    };
 
-        reply.send(items)
+    reply.send(response)
+  });
+
+  // Create new to-do-list
+  fastify.post('/todo-list', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    // request.body;
+    const list = await TodoList.create({
+      userId: request.user.userId,
+      title: request.body.title,
     });
 
-    // Return a full to do list.
-    fastify.get('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id} = request.params;
-        const todoList = await TodoList.findOne({
-            where: {id, userId: request.user.userId},
-            include: {
-                model: TodoItem,
-                attributes: ['id', 'content', 'done'],
-            }
-        });
+    reply.send(list);
+  });
 
-        if (!todoList) {
-            return reply.code(404).send({error: 'Todo list not found'});
-        }
-
-        // Format the response
-        const response = {
-            title: todoList.title,
-            items: todoList.TodoItems
-        };
-
-        reply.send(response)
+  // Create new to-do-item
+  fastify.post('/todo-list/:id/todo-items', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id} = request.params;
+    const item = await TodoItem.create({
+      listId: id,
+      content: request.body.content,
     });
 
-    // Create new to-do-list
-    fastify.post('/todo-list', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        // request.body;
-        const list = await TodoList.create({
-            userId: request.user.userId,
-            title: request.body.title,
-        });
+    reply.send(item);
+  });
 
-        reply.send(list);
-    });
+  // toggle item done
+  fastify.put('/todo-list/:id/todo-items/:item_id/toggle', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id, item_id} = request.params;
+    const item = await TodoItem.findOne({where: {listId: id, id: item_id}});
 
-    // Create new to-do-item
-    fastify.post('/todo-list/:id/todo-items', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id} = request.params;
-        const item = await TodoItem.create({
-            listId: id,
-            content: request.body.content,
-        });
+    item.done = !item.done;
 
-        reply.send(item);
-    });
+    await item.save();
 
-    // toggle item done
-    fastify.put('/todo-list/:id/todo-items/:item_id/toggle', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id, item_id} = request.params;
-        const item = await TodoItem.findOne({where: {listId: id, id: item_id}});
+    reply.send(item);
+  });
 
-        item.done = !item.done;
+  // Delete a to-do list record, with its children
+  fastify.delete('/todo-list/:id/todo-items/:item_id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id, item_id} = request.params;
+    const item = await TodoItem.findOne({where: {listId: id, id: item_id}});
+    if (!item) return reply.code(404).send({message: "Item not found."});
+    await item.destroy();
+    reply.code(204).send();
+  });
 
-        await item.save();
+  // Update a single to-do item record
+  fastify.put('/todo-list/:id/todo-items/:item_id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id, item_id} = request.params;
+    const item = await TodoItem.findOne({where: {listId: id, id: item_id}});
+    if (!item) return reply.code(404).send({message: "Item not found."});
 
-        reply.send(item);
-    });
+    item.content = request.body.content;
 
-    // Delete a to-do list record, with its children
-    fastify.delete('/todo-list/:id/todo-items/:item_id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id, item_id} = request.params;
-        const item = await TodoItem.findOne({where: {listId: id, id: item_id}});
-        if (!item) return reply.code(404).send({message: "Item not found."});
-        await item.destroy();
-        reply.code(204).send();
-    });
+    await item.save();
 
-    // Update a single to-do list record
-    fastify.put('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id} = request.params;
-        const list = await TodoList.findByPk(id);
-        if (!list) reply.code(404).send({message: "List not found."});
+    reply.send(item);
+  });
 
-        list.title = request.body.title;
+  // Update a single to-do list record
+  fastify.put('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id} = request.params;
+    const list = await TodoList.findByPk(id);
+    if (!list) reply.code(404).send({message: "List not found."});
 
-        await list.save();
+    list.title = request.body.title;
 
-        reply.send(list);
-    });
+    await list.save();
 
-    // Delete a to-do list record, with its children
-    fastify.delete('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
-        const {id} = request.params;
-        const list = await TodoList.findOne({where: {id, userId: request.user.userId}});
-        if (!list) return reply.code(404).send({message: "List not found."});
-        await list.destroy();
-        reply.code(204).send();
-    });
+    reply.send(list);
+  });
 
-    done();
+  // Delete a to-do list record, with its children
+  fastify.delete('/todo-list/:id', {preHandler: [fastify.authenticate]}, async (request, reply) => {
+    const {id} = request.params;
+    const list = await TodoList.findOne({where: {id, userId: request.user.userId}});
+    if (!list) return reply.code(404).send({message: "List not found."});
+    await list.destroy();
+    reply.code(204).send();
+  });
+
+  done();
 }

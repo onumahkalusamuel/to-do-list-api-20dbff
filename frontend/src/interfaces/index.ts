@@ -1,9 +1,13 @@
-export interface IArticle {
+export interface ITodoList {
     id: number;
     title: string;
-    content: string;
-    author: string;
-    tag?: string;
     createdAt?: string;
-    updatedAt?: string;
+    items?: ITodoListItem[],
+}
+
+export interface ITodoListItem {
+    id: number;
+    listId: number;
+    content: string;
+    done?: boolean;
 }

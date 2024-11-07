@@ -1,15 +1,21 @@
-import {createRouter, createWebHashHistory} from 'vue-router'
-import IndexPage from "./views/IndexPage.vue";
-import CreateArticle from "./views/articles/CreateArticle.vue";
-import UpdateArticle from "./views/articles/UpdateArticle.vue";
-import ViewArticle from "./views/articles/ViewArticle.vue";
+import {createRouter, createWebHashHistory, RouteRecordRaw} from 'vue-router'
+import LoginPage from "./views/LoginPage.vue";
+import RegisterPage from "./views/RegisterPage.vue";
+import AppLayout from "./layouts/AppLayout.vue";
+import DashboardPage from "./views/app/DashboardPage.vue";
+import ViewTodoList from "./views/app/ViewTodoList.vue";
 
-
-const routes = [
-    {path: '/', component: IndexPage, name: 'index'},
-    {path: '/create-article', component: CreateArticle, name: 'create-article'},
-    {path: '/update-article/:id', component: UpdateArticle, name: 'update-article'},
-    {path: '/view-article/:id', component: ViewArticle, name: 'view-article'},
+const routes: RouteRecordRaw[] = [
+    {path: '/', component: LoginPage, name: 'login'},
+    {path: '/register', component: RegisterPage, name: 'register'},
+    {
+        path: '/app',
+        component: AppLayout,
+        children: [
+            {path: '', component: DashboardPage, name: 'dashboard'},
+            {path: '/todo-list/:id', component: ViewTodoList, name: 'view-todo-list'},
+        ],
+    },
 ]
 
 export const router = createRouter({
